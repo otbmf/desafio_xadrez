@@ -1,0 +1,244 @@
+#include <stdio.h>
+#include <string.h>
+
+#define BOARD_SIZE 8
+#define MAX_HISTORY 1024
+
+char board[BOARD_SIZE][BOARD_SIZE];
+
+// Flags para controle (exemplo)
+int white_king_moved = 0;
+int black_king_moved = 0;
+int white_rook_moved[2] = {0, 0};
+int black_rook_moved[2] = {0, 0};
+int fifty_move_counter = 0;
+char last_double_pawn_move[3] = "";
+
+// Estrutura para armazenar o estado do jogo
+typedef struct {
+    char board[BOARD_SIZE][BOARD_SIZE];
+    int white_king_moved;
+    int black_king_moved;
+    int white_rook_moved[2];
+    int black_rook_moved[2];
+    int fifty_move_counter;
+    char last_double_pawn_move[3];
+} GameState;
+
+GameState history[MAX_HISTORY];
+int history_index = 0;
+int history_size = 1;
+
+// Funções auxiliares básicas
+int is_white(char c) {
+    return c >= 'A' && c <= 'Z';
+}
+int is_black(char c) {
+    return c >= 'a' && c <= 'z';
+}
+
+void init_board() {
+    // Inicia um tabuleiro simples (pode adaptar ao seu padrão)
+    char init[BOARD_SIZE][BOARD_SIZE] = {
+        {'r','n','b','q','k','b','n','r'},
+        {'p','p','p','p','p','p','p','p'},
+        {'.','.','.','.','.','.','.','.'},
+        {'.','.','.','.','.','.','.','.'},
+        {'.','.','.','.','.','.','.','.'},
+        {'.','.','.','.','.','.','.','.'},
+        {'P','P','P','P','P','P','P','P'},
+        {'R','N','B','Q','K','B','N','R'}
+    };
+    memcpy(board, init, sizeof(board));
+}
+
+// Função para imprimir o tabuleiro
+void print_board() {
+    printf("  a b c d e f g h\n");
+    for (int i = 0; i < BOARD_SIZE; i++) {
+        printf("%d ", 8 - i);
+        for (int j = 0; j < BOARD_SIZE; j++) {
+            printf("%c ", board[i][j]);
+        }
+        printf("%d\n", 8 - i);
+    }
+    printf("  a b c d e f g h\n");
+}
+
+int parse_position(const char *pos, int *row, int *col) {
+    if (strlen(pos) != 2) return 0;
+    *col = pos[0] - 'a';
+    *row = 8 - (pos[1] - '0');
+    if (*col < 0 || *col >= BOARD_SIZE || *row < 0 || *row >= BOARD_SIZE) return 0;
+    return 1;
+}
+
+void save_state_to_history() {
+    if (history_index < history_size - 1) {
+        history_size = history_index + 1;
+    }
+    if (history_size >= MAX_HISTORY) {
+        printf("Histórico cheio, não é possível salvar mais estados.\n");
+        return;
+    }
+    GameState *gs = &history[history_size];
+    memcpy(gs->board, board, sizeof(board));
+    gs->white_king_moved = white_king_moved;
+    gs->black_king_moved = black_king_moved;
+    gs->white_rook_moved[0] = white_rook_moved[0];
+    gs->white_rook_moved[1] = white_rook_moved[1];
+    gs->black_rook_moved[0] = black_rook_moved[0];
+    gs->black_rook_moved[1] = black_rook_moved[1];
+    gs->fifty_move_counter = fifty_move_counter;
+    strcpy(gs->last_double_pawn_move, last_double_pawn_move);
+
+    history_index = history_size;
+    history_size++;
+}
+
+void load_state_from_history(int index) {
+    if (index < 0 || index >= history_size) {
+        printf("Indice do histórico inválido.\n");
+        return;
+    }
+    GameState *gs = &history[index];
+    memcpy(board, gs->board, sizeof(board));
+    white_king_moved = gs->white_king_moved;
+    black_king_moved = gs->black_king_moved;
+    white_rook_moved[0] = gs->white_rook_moved[0];
+    white_rook_moved[1] = gs->white_rook_moved[1];
+    black_rook_moved[0] = gs->black_rook_moved[0];
+    black_rook_moved[1] = gs->black_rook_moved[1];
+    fifty_move_counter = gs->fifty_move_counter;
+    strcpy(last_double_pawn_move, gs->last_double_pawn_move);
+}
+
+int undo_move() {
+    if (history_index <= 0) {
+        printf("Não é possível desfazer mais movimentos.\n");
+        return 0;
+    }
+    history_index--;
+    load_state_from_history(history_index);
+    printf("Movimento desfeito.\n");
+    return 1;
+}
+
+int redo_move() {
+    if (history_index >= history_size - 1) {
+        printf("Não é possível refazer movimentos.\n");
+        return 0;
+    }
+    history_index++;
+    load_state_from_history(history_index);
+    printf("Movimento refeito.\n");
+    return 1;
+}
+
+// Função simples para mover peça sem validação completa (só pra exemplo)
+int move_piece(const char *from, const char *to, int is_white) {
+    int from_row, from_col, to_row, to_col;
+    if (!parse_position(from, &from_row, &from_col) || !parse_position(to, &to_row, &to_col)) {
+        printf("Posição inválida.\n");
+        return 0;
+    }
+    char piece = board[from_row][from_col];
+    if (piece == '.') {
+        printf("Não há peça na posição de origem.\n");
+        return 0;
+    }
+    if (is_white && is_black(piece)) {
+        printf("Peça do lado errado.\n");
+        return 0;
+    }
+    if (!is_white && is_white(piece)) {
+        printf("Peça do lado errado.\n");
+        return 0;
+    }
+
+    // Salva estado antes da jogada
+    save_state_to_history();
+
+    // Executa movimento (sem validar regras)
+    board[to_row][to_col] = piece;
+    board[from_row][from_col] = '.';
+
+    printf("Movimento de %s para %s realizado.\n", from, to);
+    return 1;
+}
+
+int main() {
+    init_board();
+    // Salva estado inicial
+    memcpy(history[0].board, board, sizeof(board));
+    history[0].white_king_moved = white_king_moved;
+    history[0].black_king_moved = black_king_moved;
+    history[0].white_rook_moved[0] = white_rook_moved[0];
+    history[0].white_rook_moved[1] = white_rook_moved[1];
+    history[0].black_rook_moved[0] = black_rook_moved[0];
+    history[0].black_rook_moved[1] = black_rook_moved[1];
+    history[0].fifty_move_counter = fifty_move_counter;
+    strcpy(history[0].last_double_pawn_move, last_double_pawn_move);
+
+    int white_turn = 1;
+    char from[3], to[3];
+    int running = 1;
+
+    while (running) {
+        print_board();
+        printf("Turno do %s. Escolha ação:\n", white_turn ? "Branco" : "Preto");
+        printf("1 - Mover peça\n2 - Desfazer (undo)\n3 - Refazer (redo)\n0 - Sair\n");
+        int choice;
+        scanf("%d", &choice);
+        getchar(); // limpar buffer
+
+        switch (choice) {
+            case 1:
+                printf("Digite posição origem (ex: e2): ");
+                fgets(from, sizeof(from), stdin);
+                from[strcspn(from, "\n")] = 0;
+
+                printf("Digite posição destino (ex: e4): ");
+                fgets(to, sizeof(to), stdin);
+                to[strcspn(to, "\n")] = 0;
+
+                if (move_piece(from, to, white_turn)) {
+                    white_turn = !white_turn;
+                }
+                break;
+            case 2:
+                if (undo_move()) {
+                    white_turn = !white_turn;
+                }
+                break;
+            case 3:
+                if (redo_move()) {
+                    white_turn = !white_turn;
+                }
+                break;
+            case 0:
+                running = 0;
+                break;
+            default:
+                printf("Opcao invalida.\n");
+        }
+    }
+
+    printf("Jogo finalizado.\n");
+    return 0;
+}
+
+
+O que esse código faz:
+
+    Inicializa o tabuleiro.
+
+    Salva o estado inicial.
+
+    Permite fazer movimentos básicos (sem validação rigorosa, só pra mostrar funcionamento).
+
+    Permite desfazer e refazer movimentos, navegando no histórico.
+
+    Troca o turno após cada movimento ou undo/redo.
+
+    Mostra um menu simples para escolher ação.

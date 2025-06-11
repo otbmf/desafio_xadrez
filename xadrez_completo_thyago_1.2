@@ -1,0 +1,224 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+
+#define BOARD_SIZE 8
+#define MAX_HISTORY 1024
+
+// ... (manter o restante do código que você já tem)
+
+// Nova função para validar promoções válidas:
+char prompt_promotion(int is_white) {
+    char promotion;
+    while (1) {
+        printf("Promocao de peao! Escolha (Q, R, B, N): ");
+        scanf(" %c", &promotion);
+        promotion = toupper(promotion);
+        if (promotion == 'Q' || promotion == 'R' || promotion == 'B' || promotion == 'N') {
+            return is_white ? promotion : tolower(promotion);
+        } else {
+            printf("Opcao invalida. Tente novamente.\n");
+        }
+    }
+}
+
+void handle_promotion(int row, int col, int is_white) {
+    if ((is_white && row == 0) || (!is_white && row == 7)) {
+        board[row][col] = prompt_promotion(is_white);
+    }
+}
+
+// Função que verifica se o movimento deixa o rei em cheque
+int move_leaves_king_in_check(int from_row, int from_col, int to_row, int to_col, int is_white) {
+    char temp_from = board[from_row][from_col];
+    char temp_to = board[to_row][to_col];
+    board[to_row][to_col] = board[from_row][from_col];
+    board[from_row][from_col] = '.';
+    int in_check = is_king_in_check(is_white);
+    board[from_row][from_col] = temp_from;
+    board[to_row][to_col] = temp_to;
+    return in_check;
+}
+
+// Atualizar handle_castling para garantir que o rei não passa por xeque
+int handle_castling(int from_row, int from_col, int to_row, int to_col, int is_white) {
+    if (is_white && from_row == 7 && from_col == 4 && to_row == 7) {
+        // Roque pequeno
+        if (to_col == 6 && !white_king_moved && !white_rook_moved[1] &&
+            board[7][5] == '.' && board[7][6] == '.') {
+            // Verifica se o rei está em cheque ou passaria por cheque
+            if (is_king_in_check(is_white) ||
+                move_leaves_king_in_check(7, 4, 7, 5, is_white) ||
+                move_leaves_king_in_check(7, 4, 7, 6, is_white))
+                return 0;
+            board[7][4] = '.';
+            board[7][6] = 'K';
+            board[7][7] = '.';
+            board[7][5] = 'R';
+            white_king_moved = 1;
+            white_rook_moved[1] = 1;
+            return 1;
+        }
+        // Roque grande
+        if (to_col == 2 && !white_king_moved && !white_rook_moved[0] &&
+            board[7][1] == '.' && board[7][2] == '.' && board[7][3] == '.') {
+            if (is_king_in_check(is_white) ||
+                move_leaves_king_in_check(7, 4, 7, 3, is_white) ||
+                move_leaves_king_in_check(7, 4, 7, 2, is_white))
+                return 0;
+            board[7][4] = '.';
+            board[7][2] = 'K';
+            board[7][0] = '.';
+            board[7][3] = 'R';
+            white_king_moved = 1;
+            white_rook_moved[0] = 1;
+            return 1;
+        }
+    }
+    if (!is_white && from_row == 0 && from_col == 4 && to_row == 0) {
+        // Roque pequeno
+        if (to_col == 6 && !black_king_moved && !black_rook_moved[1] &&
+            board[0][5] == '.' && board[0][6] == '.') {
+            if (is_king_in_check(is_white) ||
+                move_leaves_king_in_check(0, 4, 0, 5, is_white) ||
+                move_leaves_king_in_check(0, 4, 0, 6, is_white))
+                return 0;
+            board[0][4] = '.';
+            board[0][6] = 'k';
+            board[0][7] = '.';
+            board[0][5] = 'r';
+            black_king_moved = 1;
+            black_rook_moved[1] = 1;
+            return 1;
+        }
+        // Roque grande
+        if (to_col == 2 && !black_king_moved && !black_rook_moved[0] &&
+            board[0][1] == '.' && board[0][2] == '.' && board[0][3] == '.') {
+            if (is_king_in_check(is_white) ||
+                move_leaves_king_in_check(0, 4, 0, 3, is_white) ||
+                move_leaves_king_in_check(0, 4, 0, 2, is_white))
+                return 0;
+            board[0][4] = '.';
+            board[0][2] = 'k';
+            board[0][0] = '.';
+            board[0][3] = 'r';
+            black_king_moved = 1;
+            black_rook_moved[0] = 1;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// Atualizar handle_en_passant para garantir captura correta e que não deixa o rei em cheque
+int handle_en_passant(int from_row, int from_col, int to_row, int to_col, int is_white) {
+    if (last_double_pawn_move[0] == '\0') return 0;
+    int last_row, last_col;
+    if (!parse_position(last_double_pawn_move, &last_row, &last_col)) return 0;
+    int dir = is_white ? -1 : 1;
+    if (abs(from_col - last_col) == 1 && to_row == from_row + dir && to_col == last_col) {
+        if (board[from_row][from_col] == (is_white ? 'P' : 'p') && board[last_row][last_col] == (is_white ? 'p' : 'P')) {
+            // Simula movimento para ver se não deixa o rei em cheque
+            char temp_from = board[from_row][from_col];
+            char temp_to = board[to_row][to_col];
+            char temp_captured = board[last_row][last_col];
+            board[to_row][to_col] = board[from_row][from_col];
+            board[from_row][from_col] = '.';
+            board[last_row][last_col] = '.';
+            int in_check = is_king_in_check(is_white);
+            board[from_row][from_col] = temp_from;
+            board[to_row][to_col] = temp_to;
+            board[last_row][last_col] = temp_captured;
+            if (in_check) return 0;
+            
+            // Executa captura en passant
+            board[last_row][last_col] = '.';
+            board[to_row][to_col] = board[from_row][from_col];
+            board[from_row][from_col] = '.';
+            last_double_pawn_move[0] = '\0';
+            fifty_move_counter = 0;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// Atualização geral na validação do movimento para garantir que rei não fique em cheque
+int move_piece(const char *from, const char *to, int is_white) {
+    int from_row, from_col, to_row, to_col;
+    if (!parse_position(from, &from_row, &from_col) || !parse_position(to, &to_row, &to_col)) {
+        printf("Posicao invalida.\n");
+        return 0;
+    }
+    char piece = board[from_row][from_col];
+    if (piece == '.' || (is_white && is_black(piece)) || (!is_white && is_white(piece))) {
+        printf("Peca invalida para jogar.\n");
+        return 0;
+    }
+    
+    // Roque
+    if (piece == 'K' || piece == 'k') {
+        if (handle_castling(from_row, from_col, to_row, to_col, is_white)) {
+            return 1;
+        }
+    }
+    
+    // Movimento normal válido?
+    if (!is_valid_move(from_row, from_col, to_row, to_col, is_white)) {
+        printf("Movimento invalido.\n");
+        return 0;
+    }
+    
+    // En passant
+    if ((piece == 'P' || piece == 'p') && handle_en_passant(from_row, from_col, to_row, to_col, is_white)) {
+        return 1;
+    }
+    
+    // Verifica se movimento deixa rei em cheque
+    if (move_leaves_king_in_check(from_row, from_col, to_row, to_col, is_white)) {
+        printf("Movimento deixaria o rei em cheque.\n");
+        return 0;
+    }
+    
+    // Executa movimento normal
+    int is_capture = (board[to_row][to_col] != '.');
+    board[to_row][to_col] = board[from_row][from_col];
+    board[from_row][from_col] = '.';
+    
+    // Atualiza flags para roques
+    if (piece == 'K') white_king_moved = 1;
+    if (piece == 'k') black_king_moved = 1;
+    if (piece == 'R' && from_row == 7 && from_col == 0) white_rook_moved[0] = 1;
+    if (piece == 'R' && from_row == 7 && from_col == 7) white_rook_moved[1] = 1;
+    if (piece == 'r' && from_row == 0 && from_col == 0) black_rook_moved[0] = 1;
+    if (piece == 'r' && from_row == 0 && from_col == 7) black_rook_moved[1] = 1;
+    
+    // Atualiza last_double_pawn_move para promoção e movimento duplo de peão
+    if ((piece == 'P' || piece == 'p') && abs(to_row - from_row) == 2) {
+        last_double_pawn_move[0] = to[0];
+        last_double_pawn_move[1] = to[1];
+        last_double_pawn_move[2] = '\0';
+    } else {
+        last_double_pawn_move[0] = '\0';
+    }
+    
+    // Reseta contador 50-movimentos se captura ou movimento de peão
+    if (is_capture || piece == 'P' || piece == 'p')
+        fifty_move_counter = 0;
+    else
+        fifty_move_counter++;
+    
+    // Promoção
+    if (piece == 'P' || piece == 'p') {
+        handle_promotion(to_row, to_col, is_white);
+    }
+    
+    return 1;
+}
+
+O que foi melhorado:
+
+* prompt_promotion() agora força o usuário a escolher entre Q, R, B, N.
+
+* handle_castling() verifica se o rei pass

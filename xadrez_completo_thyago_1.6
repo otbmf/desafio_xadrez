@@ -1,0 +1,237 @@
+#include <stdio.h>
+#include <stdlib.h>
+
+#define BOARD_SIZE 8
+#define MAX_HISTORY 1000
+
+char board[BOARD_SIZE][BOARD_SIZE];
+int is_white_turn = 1;
+
+typedef struct {
+    char board[BOARD_SIZE][BOARD_SIZE];
+    int is_white_turn;
+} GameState;
+
+GameState history[MAX_HISTORY];
+int history_index = 0;
+
+void save_state() {
+    if (history_index < MAX_HISTORY) {
+        for (int i = 0; i < BOARD_SIZE; i++)
+            for (int j = 0; j < BOARD_SIZE; j++)
+                history[history_index].board[i][j] = board[i][j];
+        history[history_index].is_white_turn = is_white_turn;
+        history_index++;
+    }
+}
+
+void undo() {
+    if (history_index > 1) {
+        history_index--;
+        for (int i = 0; i < BOARD_SIZE; i++)
+            for (int j = 0; j < BOARD_SIZE; j++)
+                board[i][j] = history[history_index - 1].board[i][j];
+        is_white_turn = history[history_index - 1].is_white_turn;
+    }
+}
+
+void init_board() {
+    char initial[BOARD_SIZE][BOARD_SIZE] = {
+        {'r','n','b','q','k','b','n','r'},
+        {'p','p','p','p','p','p','p','p'},
+        {'.','.','.','.','.','.','.','.'},
+        {'.','.','.','.','.','.','.','.'},
+        {'.','.','.','.','.','.','.','.'},
+        {'.','.','.','.','.','.','.','.'},
+        {'P','P','P','P','P','P','P','P'},
+        {'R','N','B','Q','K','B','N','R'}
+    };
+    for (int i=0; i<BOARD_SIZE; i++)
+        for (int j=0; j<BOARD_SIZE; j++)
+            board[i][j] = initial[i][j];
+    is_white_turn = 1;
+    history_index = 0;
+    save_state();
+}
+
+int is_white(char piece) {
+    return piece >= 'A' && piece <= 'Z';
+}
+
+int is_black(char piece) {
+    return piece >= 'a' && piece <= 'z';
+}
+
+int is_opponent_piece(char piece, int white) {
+    if (piece == '.') return 0;
+    return white ? is_black(piece) : is_white(piece);
+}
+
+int is_valid_move(int from_row, int from_col, int to_row, int to_col, int white_turn);
+
+// Implementações das funções para validar movimentos das peças (torre, cavalo, bispo, rainha, rei e peão) omitidas aqui para brevidade, mas devem estar completas conforme seu código.
+
+void print_board() {
+    printf("\n  a b c d e f g h\n");
+    for (int i=0; i<BOARD_SIZE; i++) {
+        printf("%d ", 8 - i);
+        for (int j=0; j<BOARD_SIZE; j++) {
+            printf("%c ", board[i][j]);
+        }
+        printf("%d\n", 8 - i);
+    }
+    printf("  a b c d e f g h\n\n");
+}
+
+void find_king(int *row, int *col, int is_white_turn) {
+    char king = is_white_turn ? 'K' : 'k';
+    for (int i=0; i<BOARD_SIZE; i++) {
+        for (int j=0; j<BOARD_SIZE; j++) {
+            if (board[i][j] == king) {
+                *row = i;
+                *col = j;
+                return;
+            }
+        }
+    }
+    *row = -1;
+    *col = -1;
+}
+
+int is_square_attacked(int row, int col, int attacker_is_white) {
+    for (int i=0; i<BOARD_SIZE; i++) {
+        for (int j=0; j<BOARD_SIZE; j++) {
+            char piece = board[i][j];
+            if (piece == '.') continue;
+            if (attacker_is_white && !is_white(piece)) continue;
+            if (!attacker_is_white && !is_black(piece)) continue;
+            if (is_valid_move(i, j, row, col, attacker_is_white)) {
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+int is_in_check(int is_white_turn) {
+    int king_row, king_col;
+    find_king(&king_row, &king_col, is_white_turn);
+    if (king_row == -1) return 0;
+    return is_square_attacked(king_row, king_col, !is_white_turn);
+}
+
+int has_any_valid_move(int is_white_turn) {
+    for (int from_row=0; from_row<BOARD_SIZE; from_row++) {
+        for (int from_col=0; from_col<BOARD_SIZE; from_col++) {
+            if (board[from_row][from_col] == '.') continue;
+            if (is_white_turn && !is_white(board[from_row][from_col])) continue;
+            if (!is_white_turn && !is_black(board[from_row][from_col])) continue;
+
+            for (int to_row=0; to_row<BOARD_SIZE; to_row++) {
+                for (int to_col=0; to_col<BOARD_SIZE; to_col++) {
+                    if (!is_valid_move(from_row, from_col, to_row, to_col, is_white_turn)) continue;
+
+                    char captured = board[to_row][to_col];
+                    char moving_piece = board[from_row][from_col];
+                    board[to_row][to_col] = moving_piece;
+                    board[from_row][from_col] = '.';
+
+                    int in_check = is_in_check(is_white_turn);
+
+                    board[from_row][from_col] = moving_piece;
+                    board[to_row][to_col] = captured;
+
+                    if (!in_check) return 1;
+                }
+            }
+        }
+    }
+    return 0;
+}
+
+int main() {
+    init_board();
+    char input[10];
+
+    while (1) {
+        print_board();
+
+        if (is_in_check(is_white_turn)) {
+            if (!has_any_valid_move(is_white_turn)) {
+                printf("%s está em XEQUE-MATE! Fim de jogo.\n", is_white_turn ? "Brancas" : "Pretas");
+                break;
+            } else {
+                printf("%s está em XEQUE!\n", is_white_turn ? "Brancas" : "Pretas");
+            }
+        } else {
+            if (!has_any_valid_move(is_white_turn)) {
+                printf("Empate por afogamento! %s não tem movimentos legais.\n", is_white_turn ? "Brancas" : "Pretas");
+                break;
+            }
+        }
+
+        printf("%s, digite seu movimento (ex: e2e4) ou 'undo' ou 'redo': ", is_white_turn ? "Brancas" : "Pretas");
+        if (!fgets(input, sizeof(input), stdin)) break;
+
+        if (input[0] == 'u') {
+            undo();
+            continue;
+        }
+        // Se quiser implementar redo, pode criar função similar.
+
+        if (strlen(input) < 4) continue;
+
+        int from_col = input[0] - 'a';
+        int from_row = 8 - (input[1] - '0');
+        int to_col = input[2] - 'a';
+        int to_row = 8 - (input[3] - '0');
+
+        if (from_row < 0 || from_row >= BOARD_SIZE || from_col < 0 || from_col >= BOARD_SIZE ||
+            to_row < 0 || to_row >= BOARD_SIZE || to_col < 0 || to_col >= BOARD_SIZE) {
+            printf("Movimento inválido: coordenadas fora do tabuleiro.\n");
+            continue;
+        }
+
+        if (!is_valid_move(from_row, from_col, to_row, to_col, is_white_turn)) {
+            printf("Movimento inválido para a peça.\n");
+            continue;
+        }
+
+        // Simula movimento para testar xeque
+        char captured = board[to_row][to_col];
+        char moving_piece = board[from_row][from_col];
+        board[to_row][to_col] = moving_piece;
+        board[from_row][from_col] = '.';
+
+        if (is_in_check(is_white_turn)) {
+            // Movimento deixa o rei em xeque, inválido
+            board[from_row][from_col] = moving_piece;
+            board[to_row][to_col] = captured;
+            printf("Movimento inválido: seu rei ficaria em xeque.\n");
+            continue;
+        }
+
+        // Movimento válido
+        save_state();
+        is_white_turn = !is_white_turn;
+    }
+
+    return 0;
+}
+
+
+O que foi integrado?
+
+    Funções para detectar xeque (is_in_check).
+
+    Função para detectar se há qualquer movimento válido possível para o jogador (has_any_valid_move).
+
+    Verificação de xeque e xeque-mate no loop principal após cada movimento.
+
+    Movimento é simulado antes de confirmar para garantir que não deixa o rei em xeque.
+
+    Histórico básico implementado para desfazer movimentos (undo).
+
+    Comando simples undo para voltar um movimento.
+	
+	

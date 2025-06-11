@@ -1,0 +1,344 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+
+#define BOARD_SIZE 8
+#define MAX_HISTORY 1024
+
+char board[BOARD_SIZE][BOARD_SIZE];
+int white_king_moved = 0, black_king_moved = 0;
+int white_rook_moved[2] = {0, 0};
+int black_rook_moved[2] = {0, 0};
+int fifty_move_counter = 0;
+char last_double_pawn_move[3] = "";
+char position_history[MAX_HISTORY][65];
+int history_count = 0;
+
+void save_game(const char *filename) {
+    FILE *f = fopen(filename, "w");
+    if (!f) return;
+    for (int i = 0; i < BOARD_SIZE; i++) {
+        for (int j = 0; j < BOARD_SIZE; j++)
+            fputc(board[i][j], f);
+    }
+    fprintf(f, "\n%d %d %d %d %d %d %d %s\n", white_king_moved, black_king_moved,
+            white_rook_moved[0], white_rook_moved[1], black_rook_moved[0], black_rook_moved[1],
+            fifty_move_counter, last_double_pawn_move);
+    fclose(f);
+}
+
+void load_game(const char *filename) {
+    FILE *f = fopen(filename, "r");
+    if (!f) return;
+    for (int i = 0; i < BOARD_SIZE; i++) {
+        for (int j = 0; j < BOARD_SIZE; j++)
+            board[i][j] = fgetc(f);
+    }
+    fscanf(f, "\n%d %d %d %d %d %d %d %s\n", &white_king_moved, &black_king_moved,
+           &white_rook_moved[0], &white_rook_moved[1], &black_rook_moved[0], &black_rook_moved[1],
+           &fifty_move_counter, last_double_pawn_move);
+    fclose(f);
+}
+
+int is_valid_pos(int row, int col) {
+    return row >= 0 && row < BOARD_SIZE && col >= 0 && col < BOARD_SIZE;
+}
+
+int is_white(char piece) {
+    return isupper(piece);
+}
+
+int is_black(char piece) {
+    return islower(piece);
+}
+
+void save_position_to_history() {
+    char snapshot[65] = "";
+    int k = 0;
+    for (int i = 0; i < BOARD_SIZE; i++) {
+        for (int j = 0; j < BOARD_SIZE; j++) {
+            snapshot[k++] = board[i][j];
+        }
+    }
+    snapshot[k] = '\0';
+    strcpy(position_history[history_count++ % MAX_HISTORY], snapshot);
+}
+
+int count_repetitions() {
+    int count = 0;
+    char current[65] = "";
+    int k = 0;
+    for (int i = 0; i < BOARD_SIZE; i++) {
+        for (int j = 0; j < BOARD_SIZE; j++) {
+            current[k++] = board[i][j];
+        }
+    }
+    current[k] = '\0';
+    for (int i = 0; i < history_count; i++) {
+        if (strcmp(current, position_history[i]) == 0) count++;
+    }
+    return count;
+}
+
+void init_board() {
+    char white[] = {'R', 'N', 'B', 'Q', 'K', 'B', 'N', 'R'};
+    char black[] = {'r', 'n', 'b', 'q', 'k', 'b', 'n', 'r'};
+
+    for (int i = 0; i < BOARD_SIZE; i++) {
+        board[0][i] = black[i];
+        board[1][i] = 'p';
+        board[6][i] = 'P';
+        board[7][i] = white[i];
+    }
+
+    for (int i = 2; i < 6; i++)
+        for (int j = 0; j < BOARD_SIZE; j++)
+            board[i][j] = '.';
+}
+
+void print_board() {
+    printf("\n  a b c d e f g h\n");
+    for (int i = 0; i < BOARD_SIZE; i++) {
+        printf("%d ", 8 - i);
+        for (int j = 0; j < BOARD_SIZE; j++) {
+            printf("%c ", board[i][j]);
+        }
+        printf("%d\n", 8 - i);
+    }
+    printf("  a b c d e f g h\n");
+}
+
+int parse_position(const char *pos, int *row, int *col) {
+    if (strlen(pos) != 2)
+        return 0;
+    *col = pos[0] - 'a';
+    *row = 8 - (pos[1] - '0');
+    return is_valid_pos(*row, *col);
+}
+
+int is_path_clear(int row1, int col1, int row2, int col2) {
+    int dr = (row2 > row1) - (row2 < row1);
+    int dc = (col2 > col1) - (col2 < col1);
+    row1 += dr;
+    col1 += dc;
+    while (row1 != row2 || col1 != col2) {
+        if (board[row1][col1] != '.') return 0;
+        row1 += dr;
+        col1 += dc;
+    }
+    return 1;
+}
+
+int handle_castling(int from_row, int from_col, int to_row, int to_col, int is_white) {
+    if (is_white && from_row == 7 && from_col == 4 && to_row == 7) {
+        if (to_col == 6 && !white_king_moved && !white_rook_moved[1] && board[7][5] == '.' && board[7][6] == '.') {
+            board[7][4] = '.';
+            board[7][6] = 'K';
+            board[7][7] = '.';
+            board[7][5] = 'R';
+            white_king_moved = 1;
+            white_rook_moved[1] = 1;
+            return 1;
+        }
+        if (to_col == 2 && !white_king_moved && !white_rook_moved[0] && board[7][1] == '.' && board[7][2] == '.' && board[7][3] == '.') {
+            board[7][4] = '.';
+            board[7][2] = 'K';
+            board[7][0] = '.';
+            board[7][3] = 'R';
+            white_king_moved = 1;
+            white_rook_moved[0] = 1;
+            return 1;
+        }
+    }
+    if (!is_white && from_row == 0 && from_col == 4 && to_row == 0) {
+        if (to_col == 6 && !black_king_moved && !black_rook_moved[1] && board[0][5] == '.' && board[0][6] == '.') {
+            board[0][4] = '.';
+            board[0][6] = 'k';
+            board[0][7] = '.';
+            board[0][5] = 'r';
+            black_king_moved = 1;
+            black_rook_moved[1] = 1;
+            return 1;
+        }
+        if (to_col == 2 && !black_king_moved && !black_rook_moved[0] && board[0][1] == '.' && board[0][2] == '.' && board[0][3] == '.') {
+            board[0][4] = '.';
+            board[0][2] = 'k';
+            board[0][0] = '.';
+            board[0][3] = 'r';
+            black_king_moved = 1;
+            black_rook_moved[0] = 1;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+void handle_promotion(int row, int col, int is_white) {
+    if ((is_white && row == 0) || (!is_white && row == 7)) {
+        char promotion;
+        printf("Promocao de peao! Escolha (Q, R, B, N): ");
+        scanf(" %c", &promotion);
+        if (!is_white) promotion = tolower(promotion);
+        board[row][col] = promotion;
+    }
+}
+
+int is_valid_move(int from_row, int from_col, int to_row, int to_col, int is_white_turn) {
+    if (!is_valid_pos(from_row, from_col) || !is_valid_pos(to_row, to_col)) return 0;
+    char piece = board[from_row][from_col];
+    if (piece == '.' || (is_white_turn && !is_white(piece)) || (!is_white_turn && !is_black(piece))) return 0;
+
+    char dest = board[to_row][to_col];
+    if ((is_white_turn && is_white(dest)) || (!is_white_turn && is_black(dest))) return 0;
+
+    int dr = to_row - from_row;
+    int dc = to_col - from_col;
+
+    switch (tolower(piece)) {
+        case 'p':
+            if (is_white_turn) {
+                if (dc == 0 && dr == -1 && dest == '.') return 1;
+                if (dc == 0 && dr == -2 && from_row == 6 && board[from_row - 1][from_col] == '.' && dest == '.') return 1;
+                if ((dc == 1 || dc == -1) && dr == -1 && dest != '.' && is_black(dest)) return 1;
+
+                // En passant
+                if ((dc == 1 || dc == -1) && dr == -1 && dest == '.') {
+                    char en_passant_pos[3];
+                    snprintf(en_passant_pos, sizeof(en_passant_pos), "%c%d", 'a' + to_col, 8 - from_row);
+                    if (strcmp(en_passant_pos, last_double_pawn_move) == 0) return 1;
+                }
+            } else {
+                if (dc == 0 && dr == 1 && dest == '.') return 1;
+                if (dc == 0 && dr == 2 && from_row == 1 && board[from_row + 1][from_col] == '.' && dest == '.') return 1;
+                if ((dc == 1 || dc == -1) && dr == 1 && dest != '.' && is_white(dest)) return 1;
+
+                // En passant
+                if ((dc == 1 || dc == -1) && dr == 1 && dest == '.') {
+                    char en_passant_pos[3];
+                    snprintf(en_passant_pos, sizeof(en_passant_pos), "%c%d", 'a' + to_col, 8 - from_row);
+                    if (strcmp(en_passant_pos, last_double_pawn_move) == 0) return 1;
+                }
+            }
+            break;
+
+        case 'r':
+            if (dr == 0 || dc == 0) {
+                if (is_path_clear(from_row, from_col, to_row, to_col)) return 1;
+            }
+            break;
+
+        case 'n':
+            if ((abs(dr) == 2 && abs(dc) == 1) || (abs(dr) == 1 && abs(dc) == 2)) return 1;
+            break;
+
+        case 'b':
+            if (abs(dr) == abs(dc)) {
+                if (is_path_clear(from_row, from_col, to_row, to_col)) return 1;
+            }
+            break;
+
+        case 'q':
+            if (dr == 0 || dc == 0 || abs(dr) == abs(dc)) {
+                if (is_path_clear(from_row, from_col, to_row, to_col)) return 1;
+            }
+            break;
+
+        case 'k':
+            if (abs(dr) <= 1 && abs(dc) <= 1) return 1;
+            // castling
+            if (handle_castling(from_row, from_col, to_row, to_col, is_white_turn)) return 1;
+            break;
+    }
+
+    return 0;
+}
+
+void move_piece(int from_row, int from_col, int to_row, int to_col, int is_white_turn) {
+    char piece = board[from_row][from_col];
+
+    // Atualiza flags de movimento para roques e rei
+    if (tolower(piece) == 'k') {
+        if (is_white_turn) white_king_moved = 1;
+        else black_king_moved = 1;
+    }
+    if (tolower(piece) == 'r') {
+        if (is_white_turn) {
+            if (from_row == 7 && from_col == 0) white_rook_moved[0] = 1;
+            else if (from_row == 7 && from_col == 7) white_rook_moved[1] = 1;
+        } else {
+            if (from_row == 0 && from_col == 0) black_rook_moved[0] = 1;
+            else if (from_row == 0 && from_col == 7) black_rook_moved[1] = 1;
+        }
+    }
+
+    // En passant capture
+    if (tolower(piece) == 'p') {
+        if (is_white_turn && (from_row == 6 && to_row == 4)) {
+            snprintf(last_double_pawn_move, sizeof(last_double_pawn_move), "%c%d", 'a' + to_col, 8 - to_row);
+        } else if (!is_white_turn && (from_row == 1 && to_row == 3)) {
+            snprintf(last_double_pawn_move, sizeof(last_double_pawn_move), "%c%d", 'a' + to_col, 8 - to_row);
+        } else {
+            last_double_pawn_move[0] = '\0';
+        }
+
+        // Captura en passant
+        if ((abs(to_col - from_col) == 1) && (to_row != from_row) && board[to_row][to_col] == '.') {
+            if (is_white_turn) {
+                board[to_row + 1][to_col] = '.';
+            } else {
+                board[to_row - 1][to_col] = '.';
+            }
+        }
+    } else {
+        last_double_pawn_move[0] = '\0';
+    }
+
+    board[to_row][to_col] = piece;
+    board[from_row][from_col] = '.';
+
+    handle_promotion(to_row, to_col, is_white_turn);
+}
+
+int main() {
+    init_board();
+    save_position_to_history();
+
+    int is_white_turn = 1;
+    char from[3], to[3];
+    int from_row, from_col, to_row, to_col;
+
+    while (1) {
+        print_board();
+        printf("%s jogue: ", is_white_turn ? "Brancas" : "Pretas");
+        scanf("%2s %2s", from, to);
+        if (!parse_position(from, &from_row, &from_col) || !parse_position(to, &to_row, &to_col)) {
+            printf("Posicao invalida!\n");
+            continue;
+        }
+
+        if (!is_valid_move(from_row, from_col, to_row, to_col, is_white_turn)) {
+            printf("Movimento invalido!\n");
+            continue;
+        }
+
+        move_piece(from_row, from_col, to_row, to_col, is_white_turn);
+        save_position_to_history();
+
+        // Troca de turno
+        is_white_turn = !is_white_turn;
+    }
+
+    return 0;
+}
+
+
+O que foi feito:
+
+    Adicionada validação do en passant na função is_valid_move.
+
+    Atualizado last_double_pawn_move ao mover peões duas casas.
+
+    Implementada remoção do peão capturado via en passant na função move_piece.
+
+    Mantive as funções auxiliares e a estrutura original.
